@@ -1,60 +1,71 @@
-import torch
-
-print('CUDA 是否可用:', torch.cuda.is_available())
-print('当前使用的 CUDA 版本:', torch.version.cuda)
-print('显卡型号:', torch.cuda.get_device_name(0))
-
-##########
-##########
-
-from ultralytics import YOLO
 import cv2
 import time
+import torch
+from ultralytics import YOLO
 
-def run_vision(input_image_name='test.png'):
+def run_camera_vision():
     print("正在加载 YOLOv8 模型...")
     # 第一次运行会自动下载 yolov8n.pt 权重文件（大概 6MB，非常轻量）
     model = YOLO('yolov8n.pt')
+    print("模型加载完毕！")
 
-    print(f"正在对 {input_image_name} 进行目标检测...")
-    start_time = time.time()
-    # 参数说明：
-    # source: 输入的图片路径
-    # save=True: 保存画好框的图片
-    # conf=0.5: 置信度阈值，低于 50% 把握的物体不要
-    results = model(
-        source=f'C:/A_Projects/Python/Grasp/{input_image_name}',
-        save=True,
-        conf=0.5,
-        project='C:/A_Projects/Python/Grasp/',
-        name='results',
-        exist_ok=True)
+    # 1. 打开摄像头 (0 代表系统默认的第一个摄像头)
+    # 如果你有外接 USB 摄像头，且打不开，可以尝试把 0 改成 1 或 2
+    cap = cv2.VideoCapture(0)
 
-    end_time = time.time()
+    if not cap.isOpened():
+        print("无法打开摄像头，请检查连接或权限！")
+        return
 
-    # 遍历检测结果（因为可能检测到多个物体）
-    for result in results:
-        boxes = result.boxes  # 获取所有检测框
+    print("摄像头已开启，按键盘 'q' 键退出...")
 
-        # 遍历每一个框
-        for box in boxes:
-            # 1. 获取类别 ID 和名称
+    # 2. 进入实时视频流循环
+    while True:
+        # 记录每帧开始时间
+        start_time = time.time()
+
+        # 读取一帧画面
+        success, frame = cap.read()
+        if not success:
+            print("读取画面失败！")
+            break
+
+        # 3. 将这一帧画面送给 YOLO 进行推理
+        # 注意：这里去掉了 save=True，因为我们要自己用 OpenCV 显示画面
+        # verbose=False 可以关掉终端里每帧疯狂刷屏的提示
+        results = model(source=frame, conf=0.5, verbose=False)
+
+        # 提取第一个结果 (因为每次只传了一张图片)
+        result = results[0]
+
+        # 4. 提取数据 (这是为你后续发送给 OpenHarmony 准备的)
+        for box in result.boxes:
             class_id = int(box.cls[0])
             class_name = model.names[class_id]
-
-            # 2. 获取置信度
             confidence = float(box.conf[0])
-
-            # 3. 获取中心点坐标 (x, y) 和 宽高 (w, h)
-            # xywh 返回的是中心点坐标，如果是 xyxy 返回的是左上和右下角坐标
             x, y, w, h = box.xywh[0].tolist()
 
-            # 打印出你毕设最需要的数据
-            print(f"找到目标: [{class_name}] (把握: {confidence:.2f})")
-            print(f"   图像像素坐标: X={x:.1f}, Y={y:.1f}")
-            print("-" * 30)
+            # 在终端打印目标坐标 (这里你可以加上过滤条件，比如只打印 cup)
+            # print(f"找到 [{class_name}] X={x:.1f}, Y={y:.1f}")
 
-    print(f"检测完成！画好框的图片已保存在 results 文件夹下，耗时 {end_time - start_time:.2f} 秒")
+        # 5. 获取画好 YOLO 识别框的图像 (Ultralytics 提供的一键画图功能)
+        annotated_frame = result.plot()
+
+        # 计算并叠加 FPS (每秒帧率)
+        fps = 1.0 / (time.time() - start_time)
+        cv2.putText(annotated_frame, f"FPS: {fps:.1f}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        # 6. 在电脑屏幕上实时显示带框的画面
+        cv2.imshow("Robot Vision (Press 'q' to quit)", annotated_frame)
+
+        # 7. 监听键盘事件，如果按下 'q' 键则跳出循环
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # 8. 释放资源，关闭窗口
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
-    run_vision()
+    run_camera_vision()
