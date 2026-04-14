@@ -7,7 +7,7 @@ import socket
 import threading
 import json
 
-def run_camera_vision(HOST='0.0.0.0', PORT=8888):
+def run_camera_vision(HOST='0.0.0.0', PORT=8888, target_fps=10):
     print("正在加载 YOLOv8 模型...")
     model = YOLO('yolov8n.pt')
     print("模型加载完毕！")
@@ -36,6 +36,9 @@ def run_camera_vision(HOST='0.0.0.0', PORT=8888):
         return
 
     print("摄像头已开启，按键盘 'q' 键退出...")
+
+    print(f"目标帧率: {target_fps} FPS")
+    frame_interval = 1.0 / target_fps  # 每帧最小间隔时间（秒）
 
     # 进入实时视频流循环
     while True:
@@ -79,6 +82,16 @@ def run_camera_vision(HOST='0.0.0.0', PORT=8888):
 
         # 在电脑屏幕上实时显示带框的画面
         cv2.imshow("Robot Vision (Press 'q' to quit)", annotated_frame)
+
+        # 帧率控制：计算当前帧处理耗时，若不足一帧间隔则等待
+        elapsed = time.time() - start_time
+        wait_time = frame_interval - elapsed
+        if wait_time > 0:
+            time.sleep(wait_time)
+
+        # 计算并打印实际帧率
+        actual_fps = 1.0 / (time.time() - start_time)
+        print(f"实际帧率: {actual_fps:.1f} FPS")
 
         # 监听键盘事件，如果按下 'q' 键则跳出循环
         if cv2.waitKey(1) & 0xFF == ord('q'):
