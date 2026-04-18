@@ -1,0 +1,15 @@
+train: ./train_img
+val: ./train_img
+
+# 你的类别数量
+nc: 6
+
+# 你的类别名字
+names: [
+  'square',
+  'circle',
+  'triangle',
+  'rectangle',
+  'diamond',
+  'hexagon'
+]

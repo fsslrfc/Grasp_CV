@@ -1,0 +1,6 @@
+square
+circle
+triangle
+rectangle
+diamond
+hexagon

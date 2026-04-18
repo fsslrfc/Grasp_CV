@@ -40,7 +40,6 @@ def get_state_payload(state):
             "selection_center_norm": state.selection_center_norm,
         }
 
-
 def select_target(state, track_id):
     print(f"[选择目标] track_id={track_id}")
     with state.lock:
@@ -60,7 +59,6 @@ def select_target(state, track_id):
             "class_name": state.selection_class_name,
             "center_norm": state.selection_center_norm,
         }
-
 
 def grasp_target(state, track_id):
     print(f"\n{'=' * 40}")
@@ -91,7 +89,6 @@ def grasp_target(state, track_id):
         "class_name": target["class_name"],
         "center_norm": target["center_norm"],
     }
-
 
 def find_nearest_target(state, x_norm, y_norm):
     if x_norm is None or y_norm is None:
