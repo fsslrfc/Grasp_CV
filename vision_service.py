@@ -59,6 +59,7 @@ class VisionWorker(threading.Thread):
 
             self._draw_targets(frame, targets, width, height)
             self._sync_selection(frame, targets, width, height)
+            self._draw_calibration_points(frame)
 
             encoded, jpeg = cv2.imencode(
                 '.jpg',
@@ -166,3 +167,44 @@ class VisionWorker(threading.Thread):
             (0, 255, 255),
             2,
         )
+
+    def _draw_calibration_points(self, frame):
+        with self.state.lock:
+            points = [tuple(point) for point in self.state.calibration_pixel_points]
+            confirmed = self.state.calibration_confirmed
+
+        color = (255, 0, 0) if confirmed else (0, 0, 255)
+        labels = ["LT", "RT", "RB", "LB"]
+        valid_points = []
+
+        for point in points:
+            px, py = point
+            if px is None or py is None:
+                valid_points.append(None)
+            else:
+                valid_points.append((int(px), int(py)))
+
+        ordered_edges = [(0, 1), (1, 2), (2, 3), (3, 0)]
+        for start_index, end_index in ordered_edges:
+            start_point = valid_points[start_index]
+            end_point = valid_points[end_index]
+            if start_point is None or end_point is None:
+                continue
+            cv2.line(frame, start_point, end_point, color, 2)
+
+        for index, point in enumerate(valid_points):
+            if point is None:
+                continue
+
+            px, py = point
+            cv2.circle(frame, (px, py), 6, color, -1)
+            cv2.circle(frame, (px, py), 12, color, 2)
+            cv2.putText(
+                frame,
+                labels[index],
+                (px + 10, py - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+            )

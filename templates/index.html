@@ -4,19 +4,91 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Grasp 视觉操作台</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
-  <div id="video-panel">
-    <img id="stream" src="/video" onclick="onImageClick(event)">
+  <div id="app">
+    <div id="calibration-screen" class="screen active">
+      <div class="stream-card">
+        <img id="calibration-stream" alt="实时视频流" onclick="onCalibrationImageClick(event)">
+      </div>
+
+      <div id="calibration-status" class="info-box">请先完成四点标定</div>
+
+      <div id="calibration-controls">
+        <div id="cal-card-0" class="calibration-card">
+          <div class="card-title">左上</div>
+          <div class="coord-fields">
+            <label>
+              <input id="robot-x-0" type="number" step="0.01" placeholder="X" onchange="updateCalibrationRobotPoint(0)">
+            </label>
+            <label>
+              <input id="robot-y-0" type="number" step="0.01" placeholder="Y" onchange="updateCalibrationRobotPoint(0)">
+            </label>
+          </div>
+          <button id="mark-btn-0" class="mark-btn pending" type="button" onclick="armCalibrationPoint(0)">标定坐标</button>
+          <div id="pixel-info-0" class="pixel-info">像素: 未标定</div>
+        </div>
+
+        <div id="cal-card-1" class="calibration-card">
+          <div class="card-title">右上</div>
+          <div class="coord-fields">
+            <label>
+              <input id="robot-x-1" type="number" step="0.01" placeholder="X" onchange="updateCalibrationRobotPoint(1)">
+            </label>
+            <label>
+              <input id="robot-y-1" type="number" step="0.01" placeholder="Y" onchange="updateCalibrationRobotPoint(1)">
+            </label>
+          </div>
+          <button id="mark-btn-1" class="mark-btn pending" type="button" onclick="armCalibrationPoint(1)">标定坐标</button>
+          <div id="pixel-info-1" class="pixel-info">像素: 未标定</div>
+        </div>
+
+        <div id="cal-card-2" class="calibration-card">
+          <div class="card-title">右下</div>
+          <div class="coord-fields">
+            <label>
+              <input id="robot-x-2" type="number" step="0.01" placeholder="X" onchange="updateCalibrationRobotPoint(2)">
+            </label>
+            <label>
+              <input id="robot-y-2" type="number" step="0.01" placeholder="Y" onchange="updateCalibrationRobotPoint(2)">
+            </label>
+          </div>
+          <button id="mark-btn-2" class="mark-btn pending" type="button" onclick="armCalibrationPoint(2)">标定坐标</button>
+          <div id="pixel-info-2" class="pixel-info">像素: 未标定</div>
+        </div>
+
+        <div id="cal-card-3" class="calibration-card">
+          <div class="card-title">左下</div>
+          <div class="coord-fields">
+            <label>
+              <input id="robot-x-3" type="number" step="0.01" placeholder="X" onchange="updateCalibrationRobotPoint(3)">
+            </label>
+            <label>
+              <input id="robot-y-3" type="number" step="0.01" placeholder="Y" onchange="updateCalibrationRobotPoint(3)">
+            </label>
+          </div>
+          <button id="mark-btn-3" class="mark-btn pending" type="button" onclick="armCalibrationPoint(3)">标定坐标</button>
+          <div id="pixel-info-3" class="pixel-info">像素: 未标定</div>
+        </div>
+      </div>
+
+      <button id="calibration-complete-btn" type="button" disabled onclick="completeCalibration()">标定完成</button>
+    </div>
+
+    <div id="operate-screen" class="screen">
+      <div id="video-panel">
+        <img id="operate-stream" alt="实时视频流" onclick="onOperationImageClick(event)">
+      </div>
+      <div id="sidebar">
+        <h2>识别目标</h2>
+        <div id="target-list">等待检测结果...</div>
+        <div id="status" class="info-box">状态：等待连接</div>
+        <button id="grasp-btn" type="button" disabled onclick="sendGrasp()">执行抓取</button>
+        <div id="fps"></div>
+      </div>
+    </div>
   </div>
-  <div id="sidebar">
-    <h2>识别目标</h2>
-    <div id="target-list">等待检测结果...</div>
-    <div id="status">状态：等待连接</div>
-    <button id="grasp-btn" disabled onclick="sendGrasp()">执行抓取</button>
-    <div id="fps"></div>
-  </div>
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>
