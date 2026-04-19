@@ -15,7 +15,7 @@ from web_app import create_app
 
 HOST_IP = '0.0.0.0'
 HOST_PORT = 5000
-CAMERA_ID = 2
+CAMERA_ID = 1
 FPS = 15
 JPEG_QUALITY = 75
 IMG_WIDTH = 640

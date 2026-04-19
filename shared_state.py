@@ -1,5 +1,6 @@
 import copy
 import threading
+
 import cv2
 import numpy as np
 
@@ -19,7 +20,6 @@ class SharedState:
         self.selection_center_norm = None
         self.selected_missing_frames = 0
 
-        self.calibration_point_done = [False] * 4
         self.calibration_pixel_points = [[None, None] for _ in range(4)]
         self.calibration_robot_points = [[None, None] for _ in range(4)]
         self.calibration_confirmed = False
@@ -41,7 +41,6 @@ def _build_calibration_payload_locked(state):
         pixel_ready = all(value is not None for value in pixel)
         robot_ready = all(value is not None for value in robot)
         ready = pixel_ready and robot_ready
-        state.calibration_point_done[index] = pixel_ready
         points.append({
             "index": index,
             "pixel": pixel,
@@ -56,6 +55,26 @@ def _build_calibration_payload_locked(state):
         "ready": all(point["ready"] for point in points),
         "points": points,
     }
+
+
+def _get_operation_snapshot_locked(state):
+    return {
+        "width": state.image_width,
+        "height": state.image_height,
+        "matrix": None if state.calibration_matrix is None else state.calibration_matrix.copy(),
+        "operation_ready": state.calibration_confirmed and state.calibration_matrix is not None,
+        "workspace_pixel_points": copy.deepcopy(state.calibration_pixel_points),
+    }
+
+
+def _is_point_inside_workspace(pixel_points, pixel_x, pixel_y):
+    if len(pixel_points) != 4:
+        return False
+    if any(point[0] is None or point[1] is None for point in pixel_points):
+        return False
+
+    contour = np.array(pixel_points, dtype=np.float32).reshape((-1, 1, 2))
+    return cv2.pointPolygonTest(contour, (float(pixel_x), float(pixel_y)), False) >= 0
 
 
 def get_state_payload(state):
@@ -150,9 +169,6 @@ def update_calibration_point(
                 has_update = True
 
             if has_update:
-                state.calibration_point_done[point_index] = all(
-                    value is not None for value in state.calibration_pixel_points[point_index]
-                )
                 state.calibration_confirmed = False
                 state.calibration_matrix = None
 
@@ -223,10 +239,12 @@ def grasp_target(state, track_id):
 
     with state.lock:
         target = next((copy.deepcopy(item) for item in state.latest_targets if item["track_id"] == track_id), None)
-        width = state.image_width
-        height = state.image_height
-        matrix = None if state.calibration_matrix is None else state.calibration_matrix.copy()
-        operation_ready = state.calibration_confirmed and state.calibration_matrix is not None
+        snapshot = _get_operation_snapshot_locked(state)
+
+    width = snapshot["width"]
+    height = snapshot["height"]
+    matrix = snapshot["matrix"]
+    operation_ready = snapshot["operation_ready"]
 
     if target is None:
         print("  目标已丢失！")
@@ -234,6 +252,7 @@ def grasp_target(state, track_id):
         return {
             "ok": False,
             "type": "grasp_result",
+            "option": "grasp",
             "success": False,
             "track_id": track_id,
             "reason": "target_lost",
@@ -245,6 +264,7 @@ def grasp_target(state, track_id):
         return {
             "ok": False,
             "type": "grasp_result",
+            "option": "grasp",
             "success": False,
             "track_id": track_id,
             "reason": "calibration_required",
@@ -256,6 +276,7 @@ def grasp_target(state, track_id):
         return {
             "ok": False,
             "type": "grasp_result",
+            "option": "grasp",
             "success": False,
             "track_id": track_id,
             "reason": "image_not_ready",
@@ -273,10 +294,105 @@ def grasp_target(state, track_id):
     return {
         "ok": True,
         "type": "grasp_result",
+        "option": "grasp",
         "success": True,
         "track_id": track_id,
         "class_name": target["class_name"],
         "center_norm": target["center_norm"],
+        "pixel_x": round(float(pixel_x), 2),
+        "pixel_y": round(float(pixel_y), 2),
+        "target_x": round(float(target_x), 2),
+        "target_y": round(float(target_y), 2),
+        "target_z": 150.0,
+    }
+
+
+def place_point(state, click_x_norm, click_y_norm):
+    print(f"\n{'=' * 40}")
+    print(f"[放置指令] click=({click_x_norm}, {click_y_norm})")
+
+    try:
+        click_x_norm = float(click_x_norm)
+        click_y_norm = float(click_y_norm)
+    except (TypeError, ValueError):
+        print("  点击坐标无效！")
+        print(f"{'=' * 40}\n")
+        return {
+            "ok": False,
+            "type": "place_result",
+            "option": "place",
+            "success": False,
+            "reason": "invalid_click_point",
+        }
+
+    with state.lock:
+        snapshot = _get_operation_snapshot_locked(state)
+
+    width = snapshot["width"]
+    height = snapshot["height"]
+    matrix = snapshot["matrix"]
+    operation_ready = snapshot["operation_ready"]
+    workspace_pixel_points = snapshot["workspace_pixel_points"]
+
+    if not operation_ready:
+        print("  尚未完成标定！")
+        print(f"{'=' * 40}\n")
+        return {
+            "ok": False,
+            "type": "place_result",
+            "option": "place",
+            "success": False,
+            "reason": "calibration_required",
+        }
+
+    if width <= 0 or height <= 0:
+        print("  图像尺寸尚未就绪！")
+        print(f"{'=' * 40}\n")
+        return {
+            "ok": False,
+            "type": "place_result",
+            "option": "place",
+            "success": False,
+            "reason": "image_not_ready",
+        }
+
+    if not (0.0 <= click_x_norm <= 1.0 and 0.0 <= click_y_norm <= 1.0):
+        print("  点击点超出图像范围！")
+        print(f"{'=' * 40}\n")
+        return {
+            "ok": False,
+            "type": "place_result",
+            "option": "place",
+            "success": False,
+            "reason": "invalid_click_point",
+        }
+
+    pixel_x = click_x_norm * width
+    pixel_y = click_y_norm * height
+    if not _is_point_inside_workspace(workspace_pixel_points, pixel_x, pixel_y):
+        print("  放置点不在标定区域内！")
+        print(f"{'=' * 40}\n")
+        return {
+            "ok": False,
+            "type": "place_result",
+            "option": "place",
+            "success": False,
+            "reason": "point_out_of_workspace",
+            "pixel_x": round(float(pixel_x), 2),
+            "pixel_y": round(float(pixel_y), 2),
+        }
+
+    target_x, target_y = _transform_pixel_with_matrix(matrix, pixel_x, pixel_y)
+    print(f"  像素坐标: ({pixel_x:.1f}, {pixel_y:.1f})")
+    print(f"  物理坐标: ({target_x:.2f}, {target_y:.2f})")
+    print(f"{'=' * 40}\n")
+    return {
+        "ok": True,
+        "type": "place_result",
+        "option": "place",
+        "success": True,
+        "click_x_norm": round(float(click_x_norm), 4),
+        "click_y_norm": round(float(click_y_norm), 4),
         "pixel_x": round(float(pixel_x), 2),
         "pixel_y": round(float(pixel_y), 2),
         "target_x": round(float(target_x), 2),

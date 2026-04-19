@@ -5,9 +5,11 @@ let currentTargets = [];
 let selectedTrackId = null;
 let pollingTimer = null;
 let currentMode = 'calibration';
+let currentOperationMode = 'grasp';
 let activeCalibrationPoint = null;
 let currentImageWidth = 0;
 let currentImageHeight = 0;
+let selectedPlacePoint = null;
 let calibrationState = createEmptyCalibrationState();
 
 function createEmptyCalibrationState() {
@@ -60,24 +62,12 @@ function setCalibrationStatus(text, className = '') {
   el.className = 'info-box ' + className;
 }
 
-function setStreamForMode(mode) {
-  const calibrationImg = document.getElementById('calibration-stream');
-  const operateImg = document.getElementById('operate-stream');
+function setStreamForMode() {
+  const streamImg = document.getElementById('main-stream');
+  if (!streamImg) return;
 
-  if (mode === 'operate') {
-    if (operateImg.getAttribute('src') !== STREAM_URL) {
-      operateImg.setAttribute('src', STREAM_URL);
-    }
-    if (calibrationImg.getAttribute('src')) {
-      calibrationImg.removeAttribute('src');
-    }
-  } else {
-    if (calibrationImg.getAttribute('src') !== STREAM_URL) {
-      calibrationImg.setAttribute('src', STREAM_URL);
-    }
-    if (operateImg.getAttribute('src')) {
-      operateImg.removeAttribute('src');
-    }
+  if (streamImg.getAttribute('src') !== STREAM_URL) {
+    streamImg.setAttribute('src', STREAM_URL);
   }
 }
 
@@ -89,7 +79,8 @@ function switchMode(mode) {
 
   document.getElementById('calibration-screen').classList.toggle('active', mode === 'calibration');
   document.getElementById('operate-screen').classList.toggle('active', mode === 'operate');
-  setStreamForMode(mode);
+  setStreamForMode();
+  renderPlaceSelection();
 }
 
 function syncInputValue(inputId, value) {
@@ -103,6 +94,134 @@ function formatPoint(point) {
     return '未标定';
   }
   return `(${point[0]}, ${point[1]})`;
+}
+
+function roundNorm(value) {
+  return Math.round(value * 10000) / 10000;
+}
+
+function formatTargetPoint(data) {
+  return `X=${data.target_x}, Y=${data.target_y}, Z=${data.target_z}`;
+}
+
+function formatReason(reason) {
+  switch (reason) {
+    case 'calibration_required':
+      return '请先完成标定';
+    case 'target_not_found':
+      return '未选中任何目标';
+    case 'target_lost':
+      return '目标已丢失，请重新选择';
+    case 'missing_click_point':
+      return '缺少点击坐标';
+    case 'invalid_click_point':
+      return '点击坐标无效';
+    case 'point_out_of_workspace':
+      return '放置点不在标定区域内';
+    case 'image_not_ready':
+      return '图像尚未就绪';
+    default:
+      return reason || 'unknown';
+  }
+}
+
+function buildActionPayload(option, data) {
+  const payload = {
+    option,
+    source: 'vision_web',
+    target_x: data.target_x,
+    target_y: data.target_y,
+    target_z: data.target_z,
+    pixel_x: data.pixel_x,
+    pixel_y: data.pixel_y,
+    timestamp: Date.now()
+  };
+
+  if (option === 'grasp') {
+    payload.track_id = data.track_id;
+    payload.class_name = data.class_name;
+    payload.center_norm = data.center_norm;
+  } else {
+    payload.click_x_norm = data.click_x_norm;
+    payload.click_y_norm = data.click_y_norm;
+  }
+
+  return payload;
+}
+
+function notifyNativeAction(payload) {
+  const bridge = window.ohosApp;
+  if (!bridge || typeof bridge.onVisionAction !== 'function') {
+    console.warn('[Bridge] 原生桥未就绪，保留页面结果', payload);
+    return { sent: false, reason: 'bridge_unavailable' };
+  }
+
+  try {
+    bridge.onVisionAction(JSON.stringify(payload));
+    return { sent: true };
+  } catch (err) {
+    console.error('[Bridge] 调用原生桥失败', err);
+    return { sent: false, reason: 'bridge_failed' };
+  }
+}
+
+function updateOperationControls() {
+  const placeModeBtn = document.getElementById('place-mode-btn');
+  const cancelPlaceBtn = document.getElementById('cancel-place-btn');
+  const graspBtn = document.getElementById('grasp-btn');
+
+  if (!placeModeBtn || !cancelPlaceBtn || !graspBtn) return;
+
+  const isPlaceMode = currentOperationMode === 'place';
+  graspBtn.dataset.mode = isPlaceMode ? 'place' : 'grasp';
+  graspBtn.textContent = isPlaceMode ? '发送放置坐标' : '发送抓取坐标';
+
+  if (isPlaceMode) {
+    placeModeBtn.disabled = true;
+    cancelPlaceBtn.disabled = false;
+    graspBtn.disabled = !selectedPlacePoint;
+    return;
+  }
+
+  placeModeBtn.disabled = false;
+  cancelPlaceBtn.disabled = true;
+  graspBtn.disabled = selectedTrackId === null;
+}
+
+function renderPlaceSelection() {
+  const marker = document.getElementById('place-point-marker');
+  const visible = currentMode === 'operate' && currentOperationMode === 'place' && selectedPlacePoint;
+
+  if (!marker) return;
+
+  marker.classList.toggle('visible', Boolean(visible));
+  if (!visible) {
+    return;
+  }
+
+  marker.style.left = `${selectedPlacePoint.normX * 100}%`;
+  marker.style.top = `${selectedPlacePoint.normY * 100}%`;
+}
+
+function renderOperationMode() {
+  const el = document.getElementById('operation-mode');
+  if (!el) return;
+
+  if (currentOperationMode === 'place') {
+    el.textContent = '当前模式：放置模式，点击上方画面选择放置点';
+    el.className = 'info-box warning';
+  } else {
+    el.textContent = '当前模式：抓取模式，点击上方画面或下方列表锁定目标';
+    el.className = 'info-box locked';
+  }
+
+  updateOperationControls();
+}
+
+function setOperationMode(mode) {
+  currentOperationMode = mode === 'place' ? 'place' : 'grasp';
+  renderOperationMode();
+  renderPlaceSelection();
 }
 
 function renderCalibrationState(calibration) {
@@ -144,10 +263,7 @@ function renderCalibrationState(calibration) {
 function renderTargetList(targets) {
   const list = document.getElementById('target-list');
   if (!targets || targets.length === 0) {
-    list.innerHTML = '<div style="color:#888; padding:8px;">未检测到目标</div>';
-    if (selectedTrackId === null) {
-      document.getElementById('grasp-btn').disabled = true;
-    }
+    list.innerHTML = '<div class="target-empty">未检测到可抓取目标</div>';
     return;
   }
 
@@ -165,16 +281,29 @@ function updateOperationState(data, prevSelected) {
   document.getElementById('fps').textContent =
     'Frame #' + data.frame_id + ' | ' + currentTargets.length + ' 个目标';
 
+  renderOperationMode();
+
+  if (currentOperationMode === 'place') {
+    if (selectedPlacePoint) {
+      setStatus(`已选择放置点: (${selectedPlacePoint.pixelX}, ${selectedPlacePoint.pixelY})，点击“发送放置坐标”确认`, 'locked');
+    } else {
+      setStatus('放置模式：点击上方画面选择放置点', 'warning');
+    }
+    updateOperationControls();
+    renderPlaceSelection();
+    return;
+  }
+
   if (selectedTrackId !== null) {
     setStatus('已锁定: #' + selectedTrackId + ' ' + (data.selection_class_name || ''), 'locked');
-    document.getElementById('grasp-btn').disabled = false;
   } else if (prevSelected !== null) {
     setStatus('目标丢失', 'lost');
-    document.getElementById('grasp-btn').disabled = true;
   } else {
     setStatus('标定完成，检测中...', 'ready');
-    document.getElementById('grasp-btn').disabled = true;
   }
+
+  updateOperationControls();
+  renderPlaceSelection();
 }
 
 async function fetchState() {
@@ -194,8 +323,9 @@ async function fetchState() {
       switchMode('operate');
       updateOperationState(data, prevSelected);
     } else {
+      setOperationMode('grasp');
       switchMode('calibration');
-      document.getElementById('grasp-btn').disabled = true;
+      updateOperationControls();
       document.getElementById('fps').textContent = 'Frame #' + data.frame_id;
     }
   } catch (err) {
@@ -256,7 +386,7 @@ async function updateCalibrationRobotPoint(index) {
     return true;
   } catch (err) {
     console.error('[HTTP] 保存机械臂坐标失败', err);
-    setCalibrationStatus('保存机械臂坐标失败: ' + err.message, 'lost');
+    setCalibrationStatus('保存机械臂坐标失败: ' + formatReason(err.message), 'lost');
     return false;
   }
 }
@@ -277,7 +407,10 @@ function getImagePoint(event) {
   const intrinsicRatio = img.naturalWidth / img.naturalHeight;
   const elementRatio = rect.width / rect.height;
 
-  let renderWidth, renderHeight, offsetX, offsetY;
+  let renderWidth;
+  let renderHeight;
+  let offsetX;
+  let offsetY;
 
   if (intrinsicRatio > elementRatio) {
     renderWidth = rect.width;
@@ -311,6 +444,13 @@ function getImagePoint(event) {
   };
 }
 
+function onMainImageClick(event) {
+  if (currentMode === 'operate') {
+    return onOperationImageClick(event);
+  }
+  return onCalibrationImageClick(event);
+}
+
 async function onCalibrationImageClick(event) {
   if (activeCalibrationPoint === null) {
     setCalibrationStatus('请先点击某个点下方的标定按钮', 'warning');
@@ -338,7 +478,7 @@ async function onCalibrationImageClick(event) {
     }
   } catch (err) {
     console.error('[HTTP] 保存图像坐标失败', err);
-    setCalibrationStatus('保存图像坐标失败: ' + err.message, 'lost');
+    setCalibrationStatus('保存图像坐标失败: ' + formatReason(err.message), 'lost');
   }
 }
 
@@ -347,31 +487,87 @@ async function completeCalibration() {
     const data = await postJSON('/api/calibration/complete', {});
     activeCalibrationPoint = null;
     renderCalibrationState(data.calibration);
+    setOperationMode('grasp');
     switchMode('operate');
-    setStatus('标定完成，请点击画面或右侧列表选择目标', 'ready');
+    setStatus('标定完成，请点击上方画面或下方列表选择目标', 'ready');
     await fetchState();
   } catch (err) {
     console.error('[HTTP] 完成标定失败', err);
-    setCalibrationStatus('完成标定失败: ' + err.message, 'lost');
+    setCalibrationStatus('完成标定失败: ' + formatReason(err.message), 'lost');
   }
 }
 
 async function selectTarget(trackId) {
+  if (currentOperationMode === 'place') {
+    setStatus('当前处于放置模式，请先退出后再切换抓取目标', 'warning');
+    return;
+  }
+
   try {
     const data = await postJSON('/api/select', { track_id: trackId });
     selectedTrackId = data.track_id;
     setStatus('已锁定: #' + data.track_id + ' ' + (data.class_name || ''), 'locked');
-    document.getElementById('grasp-btn').disabled = false;
+    updateOperationControls();
     await fetchState();
   } catch (err) {
     console.error('[HTTP] 选择目标失败', err);
-    setStatus('选择目标失败: ' + err.message, 'lost');
+    setStatus('选择目标失败: ' + formatReason(err.message), 'lost');
+  }
+}
+
+function enterPlaceMode() {
+  if (!calibrationState.confirmed) {
+    setStatus('请先完成标定', 'warning');
+    return;
+  }
+
+  selectedPlacePoint = null;
+  setOperationMode('place');
+  setStatus('放置模式：点击上方画面选择放置点', 'warning');
+}
+
+function cancelPlaceMode() {
+  selectedPlacePoint = null;
+  setOperationMode('grasp');
+  if (selectedTrackId !== null) {
+    setStatus('已返回抓取模式，当前锁定目标 #' + selectedTrackId, 'locked');
+  } else {
+    setStatus('已返回抓取模式，请点击上方画面或下方列表选择目标', 'ready');
+  }
+}
+
+async function sendPlace() {
+  if (!selectedPlacePoint) return;
+
+  const data = await postJSON('/api/place', {
+    click_x_norm: roundNorm(selectedPlacePoint.normX),
+    click_y_norm: roundNorm(selectedPlacePoint.normY)
+  });
+
+  const payload = buildActionPayload('place', data);
+  const bridgeResult = notifyNativeAction(payload);
+
+  selectedPlacePoint = null;
+  setOperationMode('grasp');
+  if (bridgeResult.sent) {
+    setStatus('放置坐标已发送: ' + formatTargetPoint(data), 'locked');
+  } else {
+    setStatus('放置坐标已生成（原生桥未连接）: ' + formatTargetPoint(data), 'warning');
   }
 }
 
 async function onOperationImageClick(event) {
   try {
-    const { normX, normY } = getImagePoint(event);
+    const point = getImagePoint(event);
+    const { normX, normY } = point;
+
+    if (currentOperationMode === 'place') {
+      selectedPlacePoint = point;
+      renderPlaceSelection();
+      updateOperationControls();
+      setStatus(`已选择放置点: (${point.pixelX}, ${point.pixelY})，点击“发送放置坐标”确认`, 'locked');
+      return;
+    }
 
     let hit = null;
     for (const t of currentTargets) {
@@ -388,39 +584,75 @@ async function onOperationImageClick(event) {
     }
 
     const data = await postJSON('/api/click', {
-      click_x_norm: Math.round(normX * 10000) / 10000,
-      click_y_norm: Math.round(normY * 10000) / 10000
+      click_x_norm: roundNorm(normX),
+      click_y_norm: roundNorm(normY)
     });
 
     if (data.track_id !== undefined) {
       selectedTrackId = data.track_id;
       setStatus('已锁定: #' + data.track_id + ' ' + (data.class_name || ''), 'locked');
-      document.getElementById('grasp-btn').disabled = false;
+      updateOperationControls();
     }
     await fetchState();
   } catch (err) {
-    console.error('[HTTP] 点击选择失败', err);
-    setStatus('未选中任何目标', 'lost');
+    console.error('[HTTP] 点击操作失败', err);
+    if (currentOperationMode === 'place') {
+      setStatus('选择放置点失败: ' + formatReason(err.message), 'lost');
+    } else {
+      setStatus('未选中任何目标', 'lost');
+    }
   }
 }
 
 async function sendGrasp() {
+  const graspBtn = document.getElementById('grasp-btn');
+  if (!graspBtn) return;
+
+  if (currentOperationMode === 'place') {
+    if (!selectedPlacePoint) return;
+
+    graspBtn.disabled = true;
+    setStatus('正在发送放置坐标...', 'warning');
+
+    try {
+      await sendPlace();
+      await fetchState();
+    } catch (err) {
+      console.error('[HTTP] 放置失败', err);
+      setStatus('放置失败: ' + formatReason(err.message), 'lost');
+    } finally {
+      updateOperationControls();
+    }
+    return;
+  }
+
   if (selectedTrackId === null) return;
-  document.getElementById('grasp-btn').disabled = true;
+
+  graspBtn.disabled = true;
   setStatus('正在计算抓取坐标...', 'warning');
 
   try {
     const data = await postJSON('/api/grasp', { track_id: selectedTrackId });
-    if (data.success) {
-      setStatus(`抓取坐标已生成: X=${data.target_x}, Y=${data.target_y}, Z=${data.target_z}`, 'locked');
+    if (!data.success) {
+      setStatus('抓取失败: ' + formatReason(data.reason), 'lost');
+      return;
+    }
+
+    const payload = buildActionPayload('grasp', data);
+    const bridgeResult = notifyNativeAction(payload);
+
+    selectedPlacePoint = null;
+    setOperationMode('place');
+    if (bridgeResult.sent) {
+      setStatus('抓取坐标已发送: ' + formatTargetPoint(data) + '，请在画面中选择放置点', 'locked');
     } else {
-      setStatus('抓取失败: ' + (data.reason || 'unknown'), 'lost');
+      setStatus('抓取坐标已生成（原生桥未连接）: ' + formatTargetPoint(data) + '，请在画面中选择放置点', 'warning');
     }
   } catch (err) {
     console.error('[HTTP] 抓取失败', err);
-    setStatus('抓取失败: ' + err.message, 'lost');
+    setStatus('抓取失败: ' + formatReason(err.message), 'lost');
   } finally {
-    document.getElementById('grasp-btn').disabled = selectedTrackId === null;
+    updateOperationControls();
   }
 }
 
@@ -431,4 +663,5 @@ function startPolling() {
 }
 
 switchMode('calibration');
+setOperationMode('grasp');
 startPolling();

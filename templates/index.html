@@ -4,15 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Grasp 视觉操作台</title>
-  <link rel="stylesheet" href="/static/style.css?v=4">
+  <link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 <body>
   <div id="app">
-    <div id="calibration-screen" class="screen active">
-      <div class="stream-card">
-        <img id="calibration-stream" alt="实时视频流" onclick="onCalibrationImageClick(event)">
+    <div class="stream-card shared-stream-card">
+      <div class="stream-stage">
+        <img id="main-stream" alt="实时视频流" onclick="onMainImageClick(event)">
+        <div id="place-point-marker" class="place-point-marker"></div>
       </div>
+    </div>
 
+    <div id="calibration-screen" class="screen active">
       <div id="calibration-status" class="info-box">请先完成四点标定</div>
 
       <div id="calibration-controls">
@@ -77,18 +80,28 @@
     </div>
 
     <div id="operate-screen" class="screen">
-      <div id="video-panel">
-        <img id="operate-stream" alt="实时视频流" onclick="onOperationImageClick(event)">
-      </div>
-      <div id="sidebar">
-        <h2>识别目标</h2>
-        <div id="target-list">等待检测结果...</div>
-        <div id="status" class="info-box">状态：等待连接</div>
-        <button id="grasp-btn" type="button" disabled onclick="sendGrasp()">执行抓取</button>
-        <div id="fps"></div>
+      <div class="operate-bottom-panel">
+        <div class="target-strip-section">
+          <div class="section-title-row">
+            <h2>可抓取目标
+              <span class="target-strip-hint">左右滑动查看目标</span>
+            </h2>
+          </div>
+          <div id="target-list" class="target-strip">等待检测结果...</div>
+        </div>
+        <div class="operate-summary">
+          <div id="status" class="info-box">状态：等待连接</div>
+          <div id="operation-mode" class="info-box locked">当前模式：抓取模式，点击上方画面或下方列表锁定目标</div>
+          <div class="operation-actions">
+            <button id="place-mode-btn" type="button" onclick="enterPlaceMode()">进入放置模式</button>
+            <button id="cancel-place-btn" type="button" disabled onclick="cancelPlaceMode()">退出放置模式</button>
+            <button id="grasp-btn" type="button" disabled onclick="sendGrasp()">发送抓取坐标</button>
+          </div>
+          <div id="fps"></div>
+        </div>
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=10"></script>
 </body>
 </html>

@@ -2,12 +2,12 @@ import gevent
 from flask import Flask, Response, jsonify, render_template, request
 
 from shared_state import (
-    clear_selection,
     finalize_calibration,
     find_nearest_target,
     get_state_payload,
     grasp_target,
     is_operation_ready,
+    place_point,
     select_target,
     update_calibration_point,
 )
@@ -18,6 +18,13 @@ def create_app(state):
 
     def calibration_required_response():
         return jsonify({"ok": False, "reason": "calibration_required"}), 400
+
+    def operation_result_status(result):
+        if result.get("ok") or result.get("success"):
+            return 200
+        if result.get("reason") in {"target_not_found", "target_lost"}:
+            return 404
+        return 400
 
     @app.route('/')
     def index():
@@ -111,13 +118,20 @@ def create_app(state):
             return jsonify({"ok": False, "reason": "missing_track_id"}), 400
 
         result = grasp_target(state, track_id)
-        return jsonify(result), 200 if result.get('success') else 404
+        return jsonify(result), operation_result_status(result)
 
-    @app.route('/api/deselect', methods=['POST'])
-    def api_deselect():
-        print("[HTTP] 取消选择")
-        with state.lock:
-            clear_selection(state)
-        return jsonify({"ok": True})
+    @app.route('/api/place', methods=['POST'])
+    def api_place():
+        if not is_operation_ready(state):
+            return calibration_required_response()
+
+        data = request.get_json(silent=True) or {}
+        click_x = data.get('click_x_norm')
+        click_y = data.get('click_y_norm')
+        if click_x is None or click_y is None:
+            return jsonify({"ok": False, "reason": "missing_click_point"}), 400
+
+        result = place_point(state, click_x, click_y)
+        return jsonify(result), operation_result_status(result)
 
     return app
