@@ -123,9 +123,9 @@ body {
   color: #93c5fd;
 }
 
-#calibration-controls {
+.calibration-controls {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -152,13 +152,16 @@ body {
 }
 
 .coord-fields {
-  display: flex;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
   gap: 10px;
 }
 
 .coord-fields label {
   display: flex;
+  flex: 1 1 0;
+  min-width: 0;
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
@@ -182,7 +185,7 @@ body {
 .mark-btn,
 #grasp-btn,
 #place-mode-btn,
-#cancel-place-btn,
+#recalibrate-btn,
 #calibration-complete-btn {
   border: none;
   border-radius: 12px;
@@ -369,7 +372,7 @@ h2 {
 
 #grasp-btn,
 #place-mode-btn,
-#cancel-place-btn {
+#recalibrate-btn {
   flex: 1 1 180px;
   min-width: 0;
   padding: 14px;
@@ -397,25 +400,33 @@ h2 {
   background: #15803d;
 }
 
-#place-mode-btn {
+#place-mode-btn[data-mode="place"] {
   background: #d97706;
 }
 
-#place-mode-btn:hover:not(:disabled) {
+#place-mode-btn[data-mode="place"]:hover:not(:disabled) {
   background: #b45309;
 }
 
-#cancel-place-btn {
-  background: #dc2626;
+#place-mode-btn[data-mode="grasp"] {
+  background: #16a34a;
 }
 
-#cancel-place-btn:hover:not(:disabled) {
-  background: #b91c1c;
+#place-mode-btn[data-mode="grasp"]:hover:not(:disabled) {
+  background: #15803d;
+}
+
+#recalibrate-btn {
+  background: #7c3aed;
+}
+
+#recalibrate-btn:hover:not(:disabled) {
+  background: #6d28d9;
 }
 
 #grasp-btn:disabled,
 #place-mode-btn:disabled,
-#cancel-place-btn:disabled {
+#recalibrate-btn:disabled {
   background: #4b5563;
   cursor: not-allowed;
 }

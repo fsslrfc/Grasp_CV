@@ -174,7 +174,7 @@ class VisionWorker(threading.Thread):
             confirmed = self.state.calibration_confirmed
 
         color = (255, 0, 0) if confirmed else (0, 0, 255)
-        labels = ["LT", "RT", "RB", "LB"]
+        labels = ["LT", "RT", "LB", "RB"]
         valid_points = []
 
         for point in points:
@@ -184,7 +184,7 @@ class VisionWorker(threading.Thread):
             else:
                 valid_points.append((int(px), int(py)))
 
-        ordered_edges = [(0, 1), (1, 2), (2, 3), (3, 0)]
+        ordered_edges = [(0, 1), (1, 3), (3, 2), (2, 0)]
         for start_index, end_index in ordered_edges:
             start_point = valid_points[start_index]
             end_point = valid_points[end_index]

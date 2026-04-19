@@ -8,6 +8,7 @@ from shared_state import (
     grasp_target,
     is_operation_ready,
     place_point,
+    reopen_calibration,
     select_target,
     update_calibration_point,
 )
@@ -61,7 +62,7 @@ def create_app(state):
             return jsonify({"ok": False, "reason": "missing_point_index"}), 400
 
         kwargs = {"point_index": point_index}
-        for field in ('robot_x', 'robot_y', 'pixel_x', 'pixel_y'):
+        for field in ('robot_x', 'robot_y', 'robot_z', 'pixel_x', 'pixel_y'):
             if field in data:
                 kwargs[field] = data.get(field)
 
@@ -71,6 +72,11 @@ def create_app(state):
     @app.route('/api/calibration/complete', methods=['POST'])
     def api_calibration_complete():
         result = finalize_calibration(state)
+        return jsonify(result), 200 if result.get('ok') else 400
+
+    @app.route('/api/calibration/reopen', methods=['POST'])
+    def api_calibration_reopen():
+        result = reopen_calibration(state)
         return jsonify(result), 200 if result.get('ok') else 400
 
     @app.route('/api/select', methods=['POST'])

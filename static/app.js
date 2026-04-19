@@ -1,5 +1,5 @@
 const STREAM_URL = '/video';
-const CALIBRATION_POINT_NAMES = ['左上', '右上', '右下', '左下'];
+const CALIBRATION_POINT_NAMES = ['左上', '右上', '左下', '右下'];
 
 let currentTargets = [];
 let selectedTrackId = null;
@@ -16,10 +16,11 @@ function createEmptyCalibrationState() {
   return {
     confirmed: false,
     ready: false,
+    plane_z: null,
     points: Array.from({ length: 4 }, (_, index) => ({
       index,
       pixel: [null, null],
-      robot: [null, null],
+      robot: [null, null, null],
       pixel_ready: false,
       robot_ready: false,
       ready: false
@@ -33,13 +34,14 @@ function normalizeCalibrationState(data) {
 
   state.confirmed = Boolean(data.confirmed);
   state.ready = Boolean(data.ready);
+  state.plane_z = data.plane_z ?? null;
 
   if (Array.isArray(data.points)) {
     data.points.slice(0, 4).forEach((point, index) => {
       state.points[index] = {
         index,
         pixel: Array.isArray(point.pixel) ? point.pixel : [null, null],
-        robot: Array.isArray(point.robot) ? point.robot : [null, null],
+        robot: Array.isArray(point.robot) ? point.robot : [null, null, null],
         pixel_ready: Boolean(point.pixel_ready),
         robot_ready: Boolean(point.robot_ready),
         ready: Boolean(point.ready)
@@ -116,6 +118,8 @@ function formatReason(reason) {
       return '缺少点击坐标';
     case 'invalid_click_point':
       return '点击坐标无效';
+    case 'invalid_number':
+      return '请输入有效数字';
     case 'point_out_of_workspace':
       return '放置点不在标定区域内';
     case 'image_not_ready':
@@ -167,24 +171,22 @@ function notifyNativeAction(payload) {
 
 function updateOperationControls() {
   const placeModeBtn = document.getElementById('place-mode-btn');
-  const cancelPlaceBtn = document.getElementById('cancel-place-btn');
   const graspBtn = document.getElementById('grasp-btn');
 
-  if (!placeModeBtn || !cancelPlaceBtn || !graspBtn) return;
+  if (!placeModeBtn || !graspBtn) return;
 
   const isPlaceMode = currentOperationMode === 'place';
   graspBtn.dataset.mode = isPlaceMode ? 'place' : 'grasp';
   graspBtn.textContent = isPlaceMode ? '发送放置坐标' : '发送抓取坐标';
 
+  placeModeBtn.dataset.mode = isPlaceMode ? 'grasp' : 'place';
+  placeModeBtn.textContent = isPlaceMode ? '进入抓取模式' : '进入放置模式';
+
   if (isPlaceMode) {
-    placeModeBtn.disabled = true;
-    cancelPlaceBtn.disabled = false;
     graspBtn.disabled = !selectedPlacePoint;
     return;
   }
 
-  placeModeBtn.disabled = false;
-  cancelPlaceBtn.disabled = true;
   graspBtn.disabled = selectedTrackId === null;
 }
 
@@ -230,6 +232,7 @@ function renderCalibrationState(calibration) {
   calibrationState.points.forEach((point, index) => {
     syncInputValue(`robot-x-${index}`, point.robot[0]);
     syncInputValue(`robot-y-${index}`, point.robot[1]);
+    syncInputValue(`robot-z-${index}`, point.robot[2]);
 
     const card = document.getElementById(`cal-card-${index}`);
     const button = document.getElementById(`mark-btn-${index}`);
@@ -250,13 +253,14 @@ function renderCalibrationState(calibration) {
   completeBtn.textContent = calibrationState.confirmed ? '已完成标定' : '标定完成';
 
   if (calibrationState.confirmed) {
-    setCalibrationStatus('四点标定已完成，可以进入操作台进行目标选择与抓取', 'ready');
+    const planeZText = calibrationState.plane_z === null ? '' : `，平面Z=${calibrationState.plane_z}`;
+    setCalibrationStatus(`四点标定已完成${planeZText}，可以进入操作台进行目标选择与抓取`, 'ready');
   } else if (activeCalibrationPoint !== null) {
     setCalibrationStatus(`请点击上方图像，记录${CALIBRATION_POINT_NAMES[activeCalibrationPoint]}的像素坐标`, 'warning');
   } else if (calibrationState.ready) {
-    setCalibrationStatus('四个点信息已齐全，点击“标定完成”进入操作台', 'ready');
+    setCalibrationStatus('四个点XYZ与像素信息已齐全，点击“标定完成”进入操作台', 'ready');
   } else {
-    setCalibrationStatus('机械臂坐标输入和图像标定不分先后，每次完成后都会同步到后端');
+    setCalibrationStatus('机械臂XYZ坐标输入和图像标定不分先后，每次完成后都会同步到后端');
   }
 }
 
@@ -370,18 +374,20 @@ async function updateCalibrationRobotPoint(index) {
   try {
     const robotX = parseNullableNumber(document.getElementById(`robot-x-${index}`).value);
     const robotY = parseNullableNumber(document.getElementById(`robot-y-${index}`).value);
+    const robotZ = parseNullableNumber(document.getElementById(`robot-z-${index}`).value);
 
     const data = await postJSON('/api/calibration/point', {
       point_index: index,
       robot_x: robotX,
-      robot_y: robotY
+      robot_y: robotY,
+      robot_z: robotZ
     });
 
     renderCalibrationState(data.calibration);
     const pointName = CALIBRATION_POINT_NAMES[index];
     const currentPoint = normalizeCalibrationState(data.calibration).points[index];
     if (currentPoint.ready) {
-      setCalibrationStatus(`${pointName}机械臂坐标已记录，当前点数据已完整同步到后端`, 'ready');
+      setCalibrationStatus(`${pointName}机械臂XYZ坐标已记录，当前点数据已完整同步到后端`, 'ready');
     }
     return true;
   } catch (err) {
@@ -499,7 +505,7 @@ async function completeCalibration() {
 
 async function selectTarget(trackId) {
   if (currentOperationMode === 'place') {
-    setStatus('当前处于放置模式，请先退出后再切换抓取目标', 'warning');
+    setStatus('当前处于放置模式，请先切回抓取模式后再切换抓取目标', 'warning');
     return;
   }
 
@@ -533,6 +539,32 @@ function cancelPlaceMode() {
     setStatus('已返回抓取模式，当前锁定目标 #' + selectedTrackId, 'locked');
   } else {
     setStatus('已返回抓取模式，请点击上方画面或下方列表选择目标', 'ready');
+  }
+}
+
+function toggleOperationMode() {
+  if (currentOperationMode === 'place') {
+    cancelPlaceMode();
+    return;
+  }
+  enterPlaceMode();
+}
+
+async function reopenCalibration() {
+  try {
+    const data = await postJSON('/api/calibration/reopen', {});
+    activeCalibrationPoint = null;
+    selectedPlacePoint = null;
+    selectedTrackId = null;
+    currentTargets = [];
+    renderCalibrationState(data.calibration);
+    setOperationMode('grasp');
+    switchMode('calibration');
+    setCalibrationStatus('已返回标定界面，可以修改标定数据', 'warning');
+    await fetchState();
+  } catch (err) {
+    console.error('[HTTP] 重新标定失败', err);
+    setStatus('重新标定失败: ' + formatReason(err.message), 'lost');
   }
 }
 

@@ -67,7 +67,6 @@ def run_camera_vision(
     print(f"服务已启动：")
     print(f"  操作界面: http://{local_ip}:{port}/")
     print(f"  MJPEG 视频流: http://{local_ip}:{port}/video")
-    print(f"  状态接口: http://{local_ip}:{port}/api/state")
     print("=" * 50)
 
     app = create_app(state)
